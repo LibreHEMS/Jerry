@@ -1,0 +1,13 @@
+{
+  "files.autoSaveWhenNoErrors": true,
+  "files.autoSaveWorkspaceFilesOnly": true,
+  "workbench.tree.indent": 14,
+  "trivy.offlineScan": true,
+  "containers.commands.composeUp": [
+    {
+      "label": "Compose Up",
+      "template": "${composeCommand} ${configurationFile} up ${detached} ${build}"
+    }
+  ],
+  "deno.enable": true
+}
