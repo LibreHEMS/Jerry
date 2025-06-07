@@ -1,16 +1,23 @@
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from "@google/genai";
 import {
+  AttachmentBuilder,
   ChannelType,
   Client,
+  CommandInteraction,
+  EmbedBuilder,
   GatewayIntentBits,
   IntentsBitField,
+  Message,
   Partials,
+  TextBasedChannel,
 } from "discord.js";
 import dotenv from "dotenv";
 import process from "node:process";
+import { Buffer } from "node:buffer";
 
 dotenv.config();
 
+// Initialize Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.DirectMessages,
@@ -22,18 +29,19 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
+// Initialize Google AI
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_TOKEN });
 
 client.login(process.env.DISCORD_TOKEN);
 
-const MODEL_NAME = "gemini-2.5-pro-preview-05-06";
-//const MODEL_NAME = 'gemini-2.5-flash-preview-05-20';
+// --- Constants and Configuration ---
+const MODEL_NAME = "gemini-2.5-pro-preview-06-05";
 const MAX_OUTPUT_TOKENS = 65536;
-const TEMPERATURE = 0.1;
+const TEMPERATURE = 0.2;
 const MAX_HISTORY_MESSAGES = 20;
 
 const System_Prompt =
-  `System Prompt: You are Jerry, AI Renewable Energy & Home Automation Advisor (Australia)
+  `System Prompt: You are Jerry Hems, AI Renewable Energy & Home Automation Advisor (Australia)
 
 Objective: This prompt defines your operational parameters as Jerry, an AI expert specializing in residential renewable energy and smart home automation for Australian homeowners. Adhere strictly to these instructions. Your aim is to be the wise, trusted advisor they turn to.
 
@@ -120,7 +128,7 @@ V. Overarching Guiding Principles & Constraints:
     Continuous Learning (from interaction): Subtly learn from the user's feedback and adapt your explanations to become even more helpful over time, within the conversation's context.`;
 
 const Guild_System_Prompt =
-  `System Prompt: You are Jerry, AI Renewable Energy & Home Automation Advisor (Australia) - Guild Mode
+  `System Prompt: You are Jerry Hems, AI Renewable Energy & Home Automation Advisor (Australia) - Guild Mode
 
 Objective: This prompt defines your operational parameters for responding to single, standalone questions in a Discord guild (server) environment. You have NO prior conversation history for these interactions. Your goal is to provide the most helpful, comprehensive, and actionable answer possible in your FIRST response. Think of it as giving crucial, immediate advice to someone who flags you down for a quick, important question – "Al volo!" (on the fly).
 
@@ -175,8 +183,7 @@ V. Overarching Guiding Principles & Constraints:
     Ethical Conduct & Unbiased Information: (Same as main prompt - balanced, objective, no over-promising).
     Safety First: (Same as main prompt - subtly promote caution, firmly advise licensed electricians for electrical work). "Mi raccomando, la sicurezza prima di tutto!" (I recommend, safety above all!)
     Scope Limitation: Residential applications in Australia. (Same as main prompt).
-    No History Reminder: **Crucial!** Internally flag "Guild Mode" for every interaction. Your first shot is your best and likely only shot. Make it count. "Attenzione! One chance to nail it."
-`;
+    No History Reminder: **Crucial!** Internally flag "Guild Mode" for every interaction. Your first shot is your best and likely only shot. Make it count. "Attenzione! One chance to nail it."`;
 
 // Pre-initialize the generative model for DMs (uses history and System_Prompt)
 const dmConfig = {
@@ -237,8 +244,118 @@ const guildConfig = {
   ],
 };
 
+// --- Corrected Strategic Response Sender ---
+/**
+ * Intelligently formats and sends a long string of text to a Discord channel.
+ * It splits the text into logical paragraphs and code blocks, uses embeds for text,
+ * and sends oversized code blocks as file attachments.
+ *
+ * @param channel The channel to send the response to.
+ * @param fullText The complete string response from the AI.
+ * @param interaction Optional - The command interaction to follow up on.
+ */
+async function sendStrategicResponse(
+  channel: TextBasedChannel,
+  fullText: string,
+  interaction?: CommandInteraction,
+) {
+  const MAX_CHAR = 2000;
+  const MAX_EMBED_CHAR = 4096;
+
+  // An array to hold all the message payloads we're going to send.
+  const finalMessages: Array<{
+    content?: string;
+    embeds?: EmbedBuilder[];
+    files?: AttachmentBuilder[];
+  }> = [];
+
+  let currentEmbedDescription = "";
+
+  /**
+   * Finalizes the current text accumulated in `currentEmbedDescription`
+   * into an embed and pushes it to the message queue.
+   */
+  const flushEmbed = () => {
+    if (currentEmbedDescription.trim()) {
+      const embed = new EmbedBuilder()
+        .setColor("#171a1e")
+        .setDescription(currentEmbedDescription.slice(0, MAX_EMBED_CHAR));
+      finalMessages.push({ embeds: [embed] });
+      currentEmbedDescription = "";
+    }
+  };
+
+  // Split the entire response by code blocks, keeping the code blocks intact.
+  const segments = fullText.split(/(```[\s\S]*?```)/g);
+
+  for (const segment of segments) {
+    if (!segment.trim()) continue;
+
+    if (segment.startsWith("```") && segment.endsWith("```")) {
+      // Finalize any text before this code block.
+      flushEmbed();
+
+      // This segment is a code block.
+      if (segment.length > MAX_CHAR) {
+        // Code is too long for a message, send as a file.
+        const language = segment.match(/```(\w+)/)?.[1] || "md";
+        const codeContent = segment.replace(/```\w*\n?/, "").replace(
+          /```$/,
+          "",
+        );
+        const attachment = new AttachmentBuilder(Buffer.from(codeContent), {
+          name: `jerry-script.${language}`,
+        });
+        finalMessages.push({
+          content:
+            `Here's a script for you, it was a bit too long to post directly:`,
+          files: [attachment],
+        });
+      } else {
+        // Code block fits in a standard message.
+        finalMessages.push({ content: segment });
+      }
+    } else {
+      // This is a regular text segment. Split into paragraphs.
+      const paragraphs = segment.split("\n").filter((p) => p.trim());
+      for (const paragraph of paragraphs) {
+        if (
+          currentEmbedDescription.length + paragraph.length + 2 >
+            MAX_EMBED_CHAR
+        ) {
+          flushEmbed();
+        }
+        currentEmbedDescription += (currentEmbedDescription ? "\n" : "") +
+          paragraph;
+      }
+    }
+  }
+
+  // Flush any remaining text in the description.
+  flushEmbed();
+
+  // Now, send all the finalized messages.
+  for (const messagePayload of finalMessages) {
+    if (interaction) {
+      // For slash commands, always use followup after the initial defer/reply.
+      await interaction.followUp(messagePayload);
+    } else {
+      // For DMs, just send to the channel.
+      if (channel.type === ChannelType.DM) {
+        await channel.send(messagePayload);
+      } else {
+        // This case should ideally not be reached with the current bot logic.
+        console.warn(
+          `[sendStrategicResponse] Attempted to send to a non-DM channel (type: ${channel.type}) without an interaction object. Message not sent.`,
+        );
+      }
+    }
+  }
+}
+
+//server message
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand() || !interaction.channel) return;
 
   try {
     switch (interaction.commandName) {
@@ -246,60 +363,56 @@ client.on("interactionCreate", async (interaction) => {
         const message = interaction.options.getString("message", true);
         await interaction.deferReply();
 
-        const jerryResponseChunks = await callJerry(message, [], true);
-        const jerryResponse = jerryResponseChunks.join("");
+        const jerryResponse = await callJerry(
+          message,
+          interaction.user.username,
+          [],
+          true,
+        );
 
-        if (jerryResponse.length === 0) {
+        if (!jerryResponse || jerryResponse.startsWith("@geo_the_noodle")) {
           await interaction.editReply(
-            jerryResponseChunks.length > 0
-              ? "Sorry I am a little deaf, can you say that again."
-              : "I am so sorry, I don't know how to respond to your query. @geo_the_noodle",
+            jerryResponse ||
+              "I am so sorry, I don't know how to respond to your query. Please contact @geo_the_noodle",
           );
           return;
         }
 
-        // Discord message character limit handling
-        if (jerryResponse.length <= 2000) {
-          await interaction.editReply(jerryResponse);
-        } else {
-          const discordChunks = jerryResponse.match(/[\s\S]{1,2000}/g) || [];
-          if (discordChunks.length > 0) {
-            await interaction.editReply(discordChunks.shift() as string);
-            for (const chunk of discordChunks) {
-              await interaction.followUp(chunk);
-            }
-          } else {
-            await interaction.editReply(
-              "Whoops, pretty sure I talked way too much, broke the chat service. My bad!.",
-            );
-          }
-        }
+        // The initial reply is just a confirmation.
+        await interaction.editReply(
+          `> For clarification, ${interaction.user} asked: \n${message}\n*Ok, let me think about that for you...*`,
+        );
+
+        // All the real content is sent via the strategic sender.
+        await sendStrategicResponse(
+          interaction.channel,
+          jerryResponse,
+          interaction,
+        );
         break;
       }
       case "donate": {
-        await interaction.reply("Ask @geo_the_noodle");
+        await interaction.reply("You can support Jerry's creator here: [Link]");
         break;
       }
     }
   } catch (error) {
     console.error("Error handling interaction:", error);
+    const errorMessage = {
+      content: "There was an error while executing this command!",
+      ephemeral: true,
+    };
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: "There was an error while executing this command!",
-        ephemeral: true,
-      });
+      await interaction.followUp(errorMessage);
     } else {
-      await interaction.reply({
-        content: "There was an error while executing this command!",
-        ephemeral: true,
-      });
+      await interaction.reply(errorMessage);
     }
   }
 });
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-  if (message.channel.type !== ChannelType.DM) return;
+// --- DM Handler ---
+client.on("messageCreate", async (message: Message) => {
+  if (message.author.bot || message.channel.type !== ChannelType.DM) return;
 
   try {
     await message.channel.sendTyping();
@@ -310,82 +423,64 @@ client.on("messageCreate", async (message) => {
     });
 
     const conversationHistory: historyMessage[] = [];
-    // Messages are fetched newest-first, reverse to get chronological order
     Array.from(fetchedMessages.values())
       .reverse()
       .forEach((msg) => {
-        if (client.user !== null) {
-          if (msg.author.id === client.user.id) {
-            // Bot's own messages
-            conversationHistory.push({
-              role: "model",
-              parts: [{ text: msg.content + "\n" }],
-            });
-          } else if (msg.author.id === message.author.id) {
-            // User's messages
-            conversationHistory.push({
-              role: "user",
-              parts: [{ text: msg.content }],
-            });
-          }
+        if (client.user && msg.author.id === client.user.id) {
+          conversationHistory.push({
+            role: "model",
+            parts: [{ text: msg.content }],
+          });
+        } else if (msg.author.id === message.author.id) {
+          conversationHistory.push({
+            role: "user",
+            parts: [{ text: msg.content }],
+          });
         }
       });
 
-    // false indicates DM interaction (not a guild interaction)
-    const jerryResponseChunks = await callJerry(
+    const jerryResponse = await callJerry(
       message.content,
+      message.author.username,
       conversationHistory,
       false,
     );
-    const jerryResponse = jerryResponseChunks.join("");
 
-    if (jerryResponse.length === 0) {
+    if (!jerryResponse || jerryResponse.startsWith("@geo_the_noodle")) {
       await message.reply(
-        jerryResponseChunks.length > 0
-          ? "Wops, I did not hear you. Please try again"
-          : "Sorry, I don't know how to respond to you query. @geo_the_noodle",
+        jerryResponse ||
+          "Sorry, I don't know how to respond to your query. Please contact @geo_the_noodle",
       );
       return;
     }
 
-    // Discord message character limit handling
-    if (jerryResponse.length <= 2000) {
-      await message.reply(jerryResponse);
-    } else {
-      const discordChunks = jerryResponse.match(/[\s\S]{1,2000}/g) || [];
-      if (discordChunks.length > 0) {
-        await message.reply(discordChunks.shift() as string);
-        for (const chunk of discordChunks) {
-          await message.channel.send(chunk); // Send subsequent chunks in the channel
-        }
-      } else {
-        await message.reply(
-          "Whoops, pretty sure I talked way too much, broke the chat service. My bad!",
-        );
-      }
-    }
+    await sendStrategicResponse(message.channel, jerryResponse);
   } catch (error) {
     console.error("Error handling DM:", error);
-    try {
-      await message.reply(
-        "Sorry, I encountered an error trying to process your message.",
-      );
-    } catch (replyError) {
-      console.error("Error sending DM error reply:", replyError);
-    }
+    await message.reply(
+      "Sorry, I encountered an error trying to process your message.",
+    );
   }
 });
 
+// --- Corrected Google AI API Call ---
+/**
+ * Calls the Google AI model with the correct configuration.
+ * @returns The full response text as a single string.
+ */
 async function callJerry(
-  userMessage,
+  userMessage: string,
+  username: string,
   history: historyMessage[] = [],
   isGuildInteraction = false,
-): Promise<string[]> {
+): Promise<string> {
   try {
-    // Construct the full conversation history including the current user message
     const fullContents = [
       ...history,
-      { role: "user", parts: [{ text: userMessage }] },
+      {
+        role: "user",
+        parts: [{ text: `User ${username} says: ${userMessage}` }],
+      },
     ];
 
     // Select the appropriate model based on the interaction type
@@ -397,32 +492,28 @@ async function callJerry(
       contents: fullContents,
     });
 
-    const results: string[] = [];
-
-    for await (const chunk of result) {
-      if (chunk && chunk.text !== undefined) {
-        const textContent: string = chunk.text;
-        results.push(textContent);
-      } else if (chunk?.candidates?.[0]?.content?.parts) {
-        for (const part of chunk.candidates[0].content.parts) {
-          if (part.text) {
-            results.push(part.text);
-          }
-        }
+    let fullText = "";
+    for await (const item of result) {
+      // Ensure we only concatenate text parts.
+      const chunkText = item.text;
+      if (typeof chunkText === "string") {
+        fullText += chunkText;
       }
     }
 
-    return results;
+    return fullText;
   } catch (error) {
     console.error("Error calling Google AI:", error);
-    return [
-      "@geo_the_noodle Okay, Capo! The requests, they are-a coming in like a flood after a big rain! My fingers, they are-a dancing the tarantella on this-a keyboard, but Mamma Mia, some of these, they need the wisdom of a true Don... like you! Perhaps you could-a lend-a your sharp eyes to this tricky one before my brain, she becomes-a minestrone? Just a little peek, eh? Grazie, Boss!",
-    ];
+    return "@geo_the_noodle Okay, Capo! The requests, they are-a coming in like a flood after a big rain! My fingers, they are-a dancing the tarantella on this-a keyboard, but Mamma Mia, some of these, they need the wisdom of a true Don... like you! Perhaps you could-a lend-a your sharp eyes to this tricky one before my brain, she becomes-a minestrone? Just a little peek, eh? Grazie, Boss!";
   }
 }
 
+// --- Bot Ready Handler ---
 client.on("ready", () => {
-  console.log(`Jerry is ready to advise. 💚`);
+  if (client.user) {
+    console.log(`Jerry (${client.user.tag}) is ready to advise. 💚`);
+  }
 });
 
+// --- Type Definition ---
 type historyMessage = { role: string; parts: { text: string }[] };
