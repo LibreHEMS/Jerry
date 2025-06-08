@@ -7,7 +7,7 @@ dotenv.config();
 const commands = [
   {
     name: "jerry",
-    description: "Ask Jeff a question",
+    description: "Ask Jerry a question",
     options: [
       {
         name: "message",

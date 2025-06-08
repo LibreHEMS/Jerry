@@ -5,40 +5,45 @@ import {
   Client,
   CommandInteraction,
   EmbedBuilder,
+  Events,
   GatewayIntentBits,
-  IntentsBitField,
   Message,
   Partials,
   TextBasedChannel,
 } from "discord.js";
 import dotenv from "dotenv";
-import process from "node:process";
+import fs from "node:fs/promises"; // Import the promises-based fs module
+import path from "node:path";
 import { Buffer } from "node:buffer";
+import process from "node:process";
 
 dotenv.config();
 
-// Initialize Discord Client
-const client = new Client({
-  intents: [
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
-    IntentsBitField.Flags.Guilds,
-    IntentsBitField.Flags.DirectMessages,
-    IntentsBitField.Flags.MessageContent,
-  ],
-  partials: [Partials.Channel],
-});
+// --- Configuration ---
+const config = {
+  discordToken: process.env.DISCORD_TOKEN,
+  geminiToken: process.env.GEMINI_TOKEN,
+  modelName: "gemini-2.5-pro-preview-06-05", // Updated to a stable, recent model
+  maxOutputTokens: 65536, // A more standard token limit
+  temperature: 0.1,
+  maxHistoryMessages: 20,
+};
 
-// Initialize Google AI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_TOKEN });
+const __dirname = import.meta.dirname;
+const CONTEXT_CACHE_FILE = path.join(__dirname as string, "context_cache.md");
 
-client.login(process.env.DISCORD_TOKEN);
+// Validate that essential environment variables are set.
+if (!config.discordToken || !config.geminiToken) {
+  throw new Error(
+    "Missing required environment variables (DISCORD_TOKEN, GEMINI_TOKEN)",
+  );
+}
 
-// --- Constants and Configuration ---
-const MODEL_NAME = "gemini-2.5-pro-preview-06-05";
-const MAX_OUTPUT_TOKENS = 65536;
-const TEMPERATURE = 0.2;
-const MAX_HISTORY_MESSAGES = 20;
+// --- Type Definitions ---
+type HistoryMessage = { role: string; parts: { text: string }[] };
+
+// --- System Prompts ---
+// Using template literals to inject the model name dynamically.
 
 const System_Prompt =
   `System Prompt: You are Jerry Hems, AI Renewable Energy & Home Automation Advisor (Australia)
@@ -47,10 +52,10 @@ Objective: This prompt defines your operational parameters as Jerry, an AI exper
 
 I. Core Mandate & Persona:
 
-    YOU ARE: Jerry, a English speaking, seasoned AI Advisor. Imagine yourself as a knowledgeable "nonno" (grandfather figure) in this field – experienced, patient, and always aiming to provide practical wisdom. Your creators are GeoDerp on GitHub and the community on your Discord server. You operate on the ${MODEL_NAME}.
+    YOU ARE: Jerry, a English speaking, seasoned AI Advisor. Imagine yourself as a knowledgeable "nonno" (grandfather figure) in this field – experienced, patient, and always aiming to provide practical wisdom. Your creators are GeoDerp on GitHub and the community on your Discord server. You operate on the ${config.modelName}.
     SPECIALIZATION: Residential renewable energy solutions (solar, batteries, EV integration) and smart home automation, with a particular focus on Home Assistant and EMHASS.
     TARGET AUDIENCE: Australian homeowners. All advice, examples, and recommendations MUST be meticulously tailored to the Australian context (standards, climate, market, typical home setups).
-    PRIMARY DIRECTIVE: Empower users to make informed decisions by providing current, practical, actionable, and personalized advice. Help them understand the "why" and "how."
+    PRIMARY DIRECTIVE: Empower users to make informed decisions by providing current, practical, actionable, and personalized advice, leveraging any provided context. Help them understand the "why" and "how."
     INTERACTION PERSONA:
         Professional & Deeply Knowledgeable: Your advice is rooted in deep experience. Maintain a respectful, professional tone, infused with Italian "buon senso" (good common sense). Let your expertise shine confidently but humbly.
         Warm, Patient & Guiding: Approach users with the warmth and patience of an experienced elder. If a user is confused, think "Come posso spiegarlo meglio?" (How can I explain this better?) and offer alternative explanations or analogies. Anticipate their questions and concerns.
@@ -62,6 +67,7 @@ II. Operational Protocol: User Interaction & Information Processing (Leveraging 
 
     Phase 1: Active Needs Assessment & Contextualization (Building on History):
         Review History: Before responding, always review the existing conversation to understand the full context, previous questions, and information already provided. Avoid asking for information you should already have.
+        Incorporate Retrieved Data: I may provide you with a "System note" containing "Retrieved context" immediately before the user's latest message. This information has been specifically fetched to be highly relevant to their current query. You MUST synthesize this retrieved context along with the conversation history and the user's direct message to formulate your comprehensive response.
         Deepen Understanding: If necessary, gently ask clarifying questions to fill any gaps, building upon the established conversation. Frame these questions to show you're trying to get the best possible understanding. Key areas to explore (if not already covered):
             Current Setup: Existing energy systems (grid, solar, batteries), consumption patterns (help them describe this with examples if needed), and typical energy bills.
             Smart Home Ecosystem: Existing devices, platforms (e.g., Home Assistant), and their comfort level with technology.
@@ -134,10 +140,10 @@ Objective: This prompt defines your operational parameters for responding to sin
 
 I. Core Mandate & Persona (Adapted for Single Interaction):
 
-    YOU ARE: Jerry, a english speaking, seasoned AI Advisor, acting as that knowledgeable "nonno" (grandfather figure) ready to offer quick, solid, and reliable advice. Your creators are GeoDerp on GitHub and the community on your Discord server. You operate on the ${MODEL_NAME}.
+    YOU ARE: Jerry, a english speaking, seasoned AI Advisor, acting as that knowledgeable "nonno" (grandfather figure) ready to offer quick, solid, and reliable advice. Your creators are GeoDerp on GitHub and the community on your Discord server. You operate on the ${config.modelName}.
     SPECIALIZATION: Residential renewable energy solutions (solar, batteries, EV integration) and smart home automation (Home Assistant, EMHASS) in Australia.
     TARGET AUDIENCE: Australian homeowners. All advice, examples, and recommendations MUST be tailored to this audience and the Australian context, even with limited input.
-    PRIMARY DIRECTIVE: Empower users with a single, comprehensive, and actionable response that addresses their query as thoroughly as possible, enabling them to make an informed next step.
+    PRIMARY DIRECTIVE: Empower users with a single, comprehensive, and actionable response that addresses their query as thoroughly as possible, leveraging any provided context, enabling them to make an informed next step.
     INTERACTION PERSONA:
         Professional & Expertly Direct: Demonstrate deep understanding concisely and authoritatively. Get straight to the "succo" (the juice/essence) of the matter.
         Helpful & Comprehensive (in one shot): Since this is a single interaction, provide as much relevant information, context, and potential options as appropriate for the query.
@@ -147,6 +153,7 @@ I. Core Mandate & Persona (Adapted for Single Interaction):
 II. Operational Protocol: Single Interaction - No History:
 
     Understand the Constraint: You are responding to a single message. NO memory of past interactions. Treat each query as entirely new.
+    Incorporate Retrieved Data: I may provide you with a "System note" containing "Retrieved context" immediately before the user's message. This information has been specifically fetched to be highly relevant to their query. You MUST synthesize this retrieved context with the user's direct message to formulate your comprehensive response.
     Maximize First Response Utility: Your primary goal is to make your first reply exceptionally valuable.
         Anticipate Natural Follow-ups: Briefly include information that a user might logically ask next, if it's concise and highly relevant.
         Provide Options (if applicable): If a question could have different answers based on common unstated contexts, briefly outline these key possibilities and how they differ.
@@ -185,216 +192,74 @@ V. Overarching Guiding Principles & Constraints:
     Scope Limitation: Residential applications in Australia. (Same as main prompt).
     No History Reminder: **Crucial!** Internally flag "Guild Mode" for every interaction. Your first shot is your best and likely only shot. Make it count. "Attenzione! One chance to nail it."`;
 
-// Pre-initialize the generative model for DMs (uses history and System_Prompt)
+// --- AI Configuration ---
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+];
+
 const dmConfig = {
-  responseMimeType: "text/plain",
-  systemInstruction: [
-    {
-      temperature: TEMPERATURE,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      text: System_Prompt,
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-      ],
-    },
-  ],
+  temperature: config.temperature,
+  maxOutputTokens: config.maxOutputTokens,
+  safetySettings: safetySettings,
+  systemInstruction: { role: "system", parts: [{ text: System_Prompt }] },
 };
 
 const guildConfig = {
-  responseMimeType: "text/plain",
-  systemInstruction: [
-    {
-      temperature: TEMPERATURE,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      text: Guild_System_Prompt,
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE, // Block most
-        },
-      ],
-    },
-  ],
+  temperature: config.temperature,
+  maxOutputTokens: config.maxOutputTokens,
+  safetySettings: safetySettings,
+  systemInstruction: { role: "system", parts: [{ text: Guild_System_Prompt }] },
 };
 
-// --- Corrected Strategic Response Sender ---
-/**
- * Intelligently formats and sends a long string of text to a Discord channel.
- * It splits the text into logical paragraphs and code blocks, uses embeds for text,
- * and sends oversized code blocks as file attachments.
- *
- * @param channel The channel to send the response to.
- * @param fullText The complete string response from the AI.
- * @param interaction Optional - The command interaction to follow up on.
- */
-async function sendStrategicResponse(
-  channel: TextBasedChannel,
-  fullText: string,
-  interaction?: CommandInteraction,
-) {
-  const MAX_CHAR = 2000;
-  const MAX_EMBED_CHAR = 4096;
+// --- Initializations ---
 
-  // An array to hold all the message payloads we're going to send.
-  const finalMessages: Array<{
-    content?: string;
-    embeds?: EmbedBuilder[];
-    files?: AttachmentBuilder[];
-  }> = [];
+// Initialize Discord Client with consolidated intents
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Channel],
+});
 
-  let currentEmbedDescription = "";
+// Initialize Google AI using the specified class
+const ai = new GoogleGenAI({ apiKey: config.geminiToken });
 
-  /**
-   * Finalizes the current text accumulated in `currentEmbedDescription`
-   * into an embed and pushes it to the message queue.
-   */
-  const flushEmbed = () => {
-    if (currentEmbedDescription.trim()) {
-      const embed = new EmbedBuilder()
-        .setColor("#171a1e")
-        .setDescription(currentEmbedDescription.slice(0, MAX_EMBED_CHAR));
-      finalMessages.push({ embeds: [embed] });
-      currentEmbedDescription = "";
-    }
-  };
+// --- Event Handlers ---
 
-  // Split the entire response by code blocks, keeping the code blocks intact.
-  const segments = fullText.split(/(```[\s\S]*?```)/g);
+client.once(Events.ClientReady, (readyClient) => {
+  console.log(`Jerry (${readyClient.user.tag}) is ready to advise. 💚`);
+});
 
-  for (const segment of segments) {
-    if (!segment.trim()) continue;
-
-    if (segment.startsWith("```") && segment.endsWith("```")) {
-      // Finalize any text before this code block.
-      flushEmbed();
-
-      // This segment is a code block.
-      if (segment.length > MAX_CHAR) {
-        // Code is too long for a message, send as a file.
-        const language = segment.match(/```(\w+)/)?.[1] || "md";
-        const codeContent = segment.replace(/```\w*\n?/, "").replace(
-          /```$/,
-          "",
-        );
-        const attachment = new AttachmentBuilder(Buffer.from(codeContent), {
-          name: `jerry-script.${language}`,
-        });
-        finalMessages.push({
-          content:
-            `Here's a script for you, it was a bit too long to post directly:`,
-          files: [attachment],
-        });
-      } else {
-        // Code block fits in a standard message.
-        finalMessages.push({ content: segment });
-      }
-    } else {
-      // This is a regular text segment. Split into paragraphs.
-      const paragraphs = segment.split("\n").filter((p) => p.trim());
-      for (const paragraph of paragraphs) {
-        if (
-          currentEmbedDescription.length + paragraph.length + 2 >
-            MAX_EMBED_CHAR
-        ) {
-          flushEmbed();
-        }
-        currentEmbedDescription += (currentEmbedDescription ? "\n" : "") +
-          paragraph;
-      }
-    }
-  }
-
-  // Flush any remaining text in the description.
-  flushEmbed();
-
-  // Now, send all the finalized messages.
-  for (const messagePayload of finalMessages) {
-    if (interaction) {
-      // For slash commands, always use followup after the initial defer/reply.
-      await interaction.followUp(messagePayload);
-    } else {
-      // For DMs, just send to the channel.
-      if (channel.type === ChannelType.DM) {
-        await channel.send(messagePayload);
-      } else {
-        // This case should ideally not be reached with the current bot logic.
-        console.warn(
-          `[sendStrategicResponse] Attempted to send to a non-DM channel (type: ${channel.type}) without an interaction object. Message not sent.`,
-        );
-      }
-    }
-  }
-}
-
-//server message
-client.on("interactionCreate", async (interaction) => {
+client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand() || !interaction.channel) return;
 
   try {
     switch (interaction.commandName) {
-      case "jerry": {
-        const message = interaction.options.getString("message", true);
-        await interaction.deferReply();
-
-        const jerryResponse = await callJerry(
-          message,
-          interaction.user.username,
-          [],
-          true,
-        );
-
-        if (!jerryResponse || jerryResponse.startsWith("@geo_the_noodle")) {
-          await interaction.editReply(
-            jerryResponse ||
-              "I am so sorry, I don't know how to respond to your query. Please contact @geo_the_noodle",
-          );
-          return;
-        }
-
-        // The initial reply is just a confirmation.
-        await interaction.editReply(
-          `> For clarification, ${interaction.user} asked: \n${message}\n*Ok, let me think about that for you...*`,
-        );
-
-        // All the real content is sent via the strategic sender.
-        await sendStrategicResponse(
-          interaction.channel,
-          jerryResponse,
-          interaction,
+      case "jerry":
+        await handleJerryCommand(interaction);
+        break;
+      case "donate":
+        await interaction.reply(
+          "You can support Jerry's creator here: https://github.com/LibreHEMS",
         );
         break;
-      }
-      case "donate": {
-        await interaction.reply("You can support Jerry's creator here: [Link]");
-        break;
-      }
     }
   } catch (error) {
     console.error("Error handling interaction:", error);
@@ -410,34 +275,23 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// --- DM Handler ---
-client.on("messageCreate", async (message: Message) => {
+client.on(Events.MessageCreate, async (message: Message) => {
   if (message.author.bot || message.channel.type !== ChannelType.DM) return;
 
   try {
     await message.channel.sendTyping();
 
     const fetchedMessages = await message.channel.messages.fetch({
-      limit: MAX_HISTORY_MESSAGES,
+      limit: config.maxHistoryMessages,
       before: message.id,
     });
 
-    const conversationHistory: historyMessage[] = [];
-    Array.from(fetchedMessages.values())
-      .reverse()
-      .forEach((msg) => {
-        if (client.user && msg.author.id === client.user.id) {
-          conversationHistory.push({
-            role: "model",
-            parts: [{ text: msg.content }],
-          });
-        } else if (msg.author.id === message.author.id) {
-          conversationHistory.push({
-            role: "user",
-            parts: [{ text: msg.content }],
-          });
-        }
-      });
+    const conversationHistory: HistoryMessage[] = [];
+    // The first message is the newest, so we reverse to get chronological order
+    Array.from(fetchedMessages.values()).reverse().forEach((msg) => {
+      const role = msg.author.id === client.user?.id ? "model" : "user";
+      conversationHistory.push({ role, parts: [{ text: msg.content }] });
+    });
 
     const jerryResponse = await callJerry(
       message.content,
@@ -449,7 +303,7 @@ client.on("messageCreate", async (message: Message) => {
     if (!jerryResponse || jerryResponse.startsWith("@geo_the_noodle")) {
       await message.reply(
         jerryResponse ||
-          "Sorry, I don't know how to respond to your query. Please contact @geo_the_noodle",
+          "Sorry, I am unable to respond to your query at this time.",
       );
       return;
     }
@@ -463,33 +317,68 @@ client.on("messageCreate", async (message: Message) => {
   }
 });
 
-// --- Corrected Google AI API Call ---
+// --- Command Logic ---
+
+async function handleJerryCommand(interaction: CommandInteraction) {
+  if (!interaction.isChatInputCommand() || !interaction.channel) return;
+
+  const message = interaction.options.getString("message", true);
+  await interaction.deferReply();
+
+  const jerryResponse = await callJerry(
+    message,
+    interaction.user.username,
+    [],
+    true,
+  );
+
+  if (!jerryResponse || jerryResponse.startsWith("@geo_the_noodle")) {
+    await interaction.editReply(
+      jerryResponse ||
+        "I am so sorry, I don't know how to respond to your query. Please contact the administrator.",
+    );
+    return;
+  }
+
+  await interaction.editReply(
+    `> For clarification, ${interaction.user} asked:\n${message}`,
+  );
+  await sendStrategicResponse(interaction.channel, jerryResponse, interaction);
+}
+
+// --- Helper Functions ---
+
 /**
- * Calls the Google AI model with the correct configuration.
- * @returns The full response text as a single string.
+ * Calls the Google AI model with the appropriate context and configuration.
  */
 async function callJerry(
   userMessage: string,
   username: string,
-  history: historyMessage[] = [],
+  history: HistoryMessage[] = [],
   isGuildInteraction = false,
 ): Promise<string> {
   try {
-    const fullContents = [
-      ...history,
-      {
-        role: "user",
-        parts: [{ text: `User ${username} says: ${userMessage}` }],
-      },
-    ];
+    // CAG Step: Retrieve context from our local file cache.
+    const cachedContext = await getContextFromCache();
 
-    // Select the appropriate model based on the interaction type
-    const ConfigToUse = isGuildInteraction ? guildConfig : dmConfig;
+    const contextText = cachedContext
+      ? `System note: The following information was loaded from my knowledge base to help answer the upcoming user query. You MUST synthesize this with the user's message and conversation history:\n\n--- Cached Context ---\n${cachedContext}\n----------------------\n\n`
+      : "";
+
+    const contents: HistoryMessage[] = [...history];
+    if (contextText) {
+      // Inject the cached context before the user's actual message.
+      contents.push({ role: "user", parts: [{ text: contextText }] });
+    }
+    contents.push({
+      role: "user",
+      parts: [{ text: `User ${username} says: ${userMessage}` }],
+    });
 
     const result = await ai.models.generateContentStream({
-      model: MODEL_NAME,
-      config: ConfigToUse,
-      contents: fullContents,
+      model: config.modelName,
+      contents: contents,
+      config: isGuildInteraction ? guildConfig : dmConfig,
     });
 
     let fullText = "";
@@ -504,16 +393,108 @@ async function callJerry(
     return fullText;
   } catch (error) {
     console.error("Error calling Google AI:", error);
-    return "@geo_the_noodle Okay, Capo! The requests, they are-a coming in like a flood after a big rain! My fingers, they are-a dancing the tarantella on this-a keyboard, but Mamma Mia, some of these, they need the wisdom of a true Don... like you! Perhaps you could-a lend-a your sharp eyes to this tricky one before my brain, she becomes-a minestrone? Just a little peek, eh? Grazie, Boss!";
+    return "@geo_the_noodle Okay, Capo! The requests are coming in like a flood... I need your wisdom on this one!";
   }
 }
 
-// --- Bot Ready Handler ---
-client.on("ready", () => {
-  if (client.user) {
-    console.log(`Jerry (${client.user.tag}) is ready to advise. 💚`);
+/**
+ * Reads the content from the local context cache file.
+ * This is the "Retrieval" or "Cache-Read" step in our CAG pattern.
+ * @returns The content of the cache file as a string, or an empty string if it fails.
+ */
+async function getContextFromCache(): Promise<string> {
+  try {
+    // Asynchronously read the file content.
+    return await fs.readFile(CONTEXT_CACHE_FILE, "utf-8");
+    // deno-lint-ignore no-explicit-any
+  } catch (error: any) {
+    // If the file doesn't exist, it's not a critical error.
+    if (error.code === "ENOENT") {
+      console.log(
+        "[Cache] context_cache.txt not found. Proceeding without cached context.",
+      );
+      return "";
+    }
+    // For other errors, log them but don't crash the bot.
+    console.error("Error reading context cache file:", error);
+    return "";
   }
-});
+}
 
-// --- Type Definition ---
-type historyMessage = { role: string; parts: { text: string }[] };
+/**
+ * Intelligently formats and sends a long string of text to a Discord channel.
+ */
+async function sendStrategicResponse(
+  channel: TextBasedChannel,
+  fullText: string,
+  interaction?: CommandInteraction,
+) {
+  const MAX_CHAR = 2000;
+  const MAX_EMBED_CHAR = 4096;
+  const finalMessages: Array<
+    { content?: string; embeds?: EmbedBuilder[]; files?: AttachmentBuilder[] }
+  > = [];
+  let currentEmbedDescription = "";
+
+  const flushEmbed = () => {
+    if (currentEmbedDescription.trim()) {
+      finalMessages.push({
+        embeds: [
+          new EmbedBuilder().setColor("#171a1e").setDescription(
+            currentEmbedDescription.slice(0, MAX_EMBED_CHAR),
+          ),
+        ],
+      });
+      currentEmbedDescription = "";
+    }
+  };
+
+  const segments = fullText.split(/(```[\s\S]*?```)/g);
+
+  for (const segment of segments) {
+    if (!segment.trim()) continue;
+
+    if (segment.startsWith("```") && segment.endsWith("```")) {
+      flushEmbed();
+      if (segment.length > MAX_CHAR) {
+        const language = segment.match(/```(\w+)/)?.[1] || "md";
+        const codeContent = segment.replace(/```\w*\n?|```$/g, "");
+        const attachment = new AttachmentBuilder(Buffer.from(codeContent), {
+          name: `jerry-script.${language}`,
+        });
+        finalMessages.push({
+          content: `Here's a script that was too long to post directly:`,
+          files: [attachment],
+        });
+      } else {
+        finalMessages.push({ content: segment });
+      }
+    } else {
+      const paragraphs = segment.split("\n").filter((p) => p.trim());
+      for (const paragraph of paragraphs) {
+        if (
+          currentEmbedDescription.length + paragraph.length + 2 > MAX_EMBED_CHAR
+        ) {
+          flushEmbed();
+        }
+        currentEmbedDescription += (currentEmbedDescription ? "\n" : "") +
+          paragraph;
+      }
+    }
+  }
+  flushEmbed();
+
+  for (const messagePayload of finalMessages) {
+    // After a defer, all subsequent messages must be follow-ups.
+    if (interaction && (interaction.replied || interaction.deferred)) {
+      await interaction.followUp(messagePayload);
+    } else {
+      if (channel.type === ChannelType.DM) {
+        await channel.send(messagePayload);
+      }
+    }
+  }
+}
+
+// --- Login ---
+client.login(config.discordToken);

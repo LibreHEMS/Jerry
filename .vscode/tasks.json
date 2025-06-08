@@ -4,7 +4,7 @@
   "tasks": [
     {
       "type": "deno",
-      "command": "run",
+      "command": "run --allow-env --allow-read --allow-net",
       "problemMatcher": [
         "$deno"
       ],
