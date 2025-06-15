@@ -4,6 +4,7 @@ import {
   ChannelType,
   Client,
   CommandInteraction,
+  Embed,
   EmbedBuilder,
   Events,
   GatewayIntentBits,
@@ -26,7 +27,7 @@ const config = {
   modelName: "gemini-2.5-pro-preview-06-05", // Updated to a stable, recent model
   maxOutputTokens: 65536, // A more standard token limit
   temperature: 0.1,
-  maxHistoryMessages: 20,
+  maxHistoryMessages: 15,
 };
 
 const __dirname = import.meta.dirname;
@@ -288,9 +289,23 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
     const conversationHistory: HistoryMessage[] = [];
     // The first message is the newest, so we reverse to get chronological order
-    Array.from(fetchedMessages.values()).reverse().forEach((msg) => {
+    Array.from(fetchedMessages.values()).reverse().forEach((msg, i) => {
       const role = msg.author.id === client.user?.id ? "model" : "user";
-      conversationHistory.push({ role, parts: [{ text: msg.content }] });
+
+      let dText: string = "";
+      if (role === "model") {
+        if (msg.content) {
+          dText = msg.content;
+        } else {
+          const embed = msg.embeds.pop();
+          if (embed instanceof Embed && embed.description) {
+            dText = embed.description;
+          }
+        }
+      } else {
+        dText = msg.content;
+      }
+      conversationHistory.push({ role, parts: [{ text: dText }] });
     });
 
     const jerryResponse = await callJerry(
@@ -365,14 +380,13 @@ async function callJerry(
       ? `System note: The following information was loaded from my knowledge base to help answer the upcoming user query. You MUST synthesize this with the user's message and conversation history:\n\n--- Cached Context ---\n${cachedContext}\n----------------------\n\n`
       : "";
 
+    const combinedUserMessage =
+      `${contextText}User ${username} says: ${userMessage}`;
+
     const contents: HistoryMessage[] = [...history];
-    if (contextText) {
-      // Inject the cached context before the user's actual message.
-      contents.push({ role: "user", parts: [{ text: contextText }] });
-    }
     contents.push({
       role: "user",
-      parts: [{ text: `User ${username} says: ${userMessage}` }],
+      parts: [{ text: combinedUserMessage }],
     });
 
     const result = await ai.models.generateContentStream({
