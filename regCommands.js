@@ -37,5 +37,3 @@ try {
 } catch (err) {
   console.log(err);
 }
-
-// # https://discord.com/oauth2/authorize?client_id=1373548539459670027&permissions=0&scope=bot%20applications.commands
