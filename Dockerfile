@@ -13,14 +13,17 @@ RUN dnf -y update-minimal --security --sec-severity=Important --sec-severity=Cri
     # clear cache
     dnf clean all
 
-# install Deno
-RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+
 
 # Dev target
 FROM base AS dev
 COPY .devcontainer/devtools.sh /tmp/devtools.sh
 RUN  /tmp/devtools.sh
 USER default
+
+# install uv (Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
 
 # DEPLOYMENT EXAMPLE:
 #-----------------------------
@@ -35,4 +38,4 @@ COPY . .
 
 ## Run Jerry
 USER default
-CMD [ "deno serve" ]
+CMD [ "uv run main.py" ]

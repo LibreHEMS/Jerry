@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+  namespace: jerry
+  labels:
+    app: rag-service
+    component: retrieval
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-service
+  template:
+    metadata:
+      labels:
+        app: rag-service
+        component: retrieval
+    spec:
+      containers:
+      - name: rag-service
+        image: jerry/rag-service:latest
+        ports:
+        - containerPort: 8002
+          name: http
+        env:
+        - name: CHROMA_HOST
+          value: "vector-db"
+        - name: CHROMA_PORT
+          value: "8000"
+        - name: EMBEDDINGS_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: EMBEDDINGS_MODEL
+        - name: RAG_SERVER_HOST
+          value: "0.0.0.0"
+        - name: RAG_SERVER_PORT
+          value: "8002"
+        - name: VECTOR_DB_PATH
+          value: "/app/data/chroma"
+        - name: RAG_CHUNK_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: RAG_CHUNK_SIZE
+        - name: RAG_CHUNK_OVERLAP
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: RAG_CHUNK_OVERLAP
+        - name: RAG_MAX_RESULTS
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: RAG_MAX_RESULTS
+        volumeMounts:
+        - name: document-data
+          mountPath: /app/data/documents
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 45
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: document-data
+        persistentVolumeClaim:
+          claimName: jerry-document-data-pvc
+      securityContext:
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  namespace: jerry
+  labels:
+    app: rag-service
+spec:
+  selector:
+    app: rag-service
+  ports:
+  - port: 8002
+    targetPort: 8002
+    name: http
+  type: ClusterIP

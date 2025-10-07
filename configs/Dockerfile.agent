@@ -1,0 +1,89 @@
+# Jerry Agent Service - Security Hardened
+FROM python:3.11-slim
+
+# Security: Set metadata labels
+LABEL maintainer="jerry@librehems.org"
+LABEL description="Jerry AI Agent Service with LangChain"
+LABEL version="1.0.0"
+LABEL security.scan.enabled="true"
+
+# Security: Update base image and install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    build-essential \
+    curl \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Security: Create application directory with restricted permissions
+WORKDIR /app
+RUN chmod 755 /app
+
+# Security: Create non-root user early
+RUN groupadd -r jerry && useradd -r -g jerry -u 1000 jerry \
+    && mkdir -p /app/data /app/logs \
+    && chown -R jerry:jerry /app
+
+# Security: Install dependencies as root
+COPY --chown=jerry:jerry pyproject.toml ./
+RUN pip install --no-cache-dir -U pip uv
+
+# Install dependencies from pyproject.toml
+RUN uv pip install --system --no-cache-dir \
+    "discord.py>=2.3.0" \
+    "langchain>=0.0.300" \
+    "langchain-community>=0.0.30" \
+    "fastapi>=0.100.0" \
+    "uvicorn>=0.23.0" \
+    "chromadb>=0.4.0" \
+    "llama-cpp-python>=0.2.0" \
+    "pydantic>=2.0.0" \
+    "python-dotenv>=1.0.0" \
+    "httpx>=0.24.0" \
+    "numpy>=1.24.0" \
+    "sentence-transformers>=2.2.0" \
+    "pypdf>=3.0.0" \
+    "pyjwt>=2.8.0" \
+    "cryptography>=41.0.0" \
+    "websockets>=11.0.0" \
+    "python-multipart>=0.0.6" \
+    "jinja2>=3.1.0"
+
+# Security: Copy application source with proper ownership
+COPY --chown=jerry:jerry src/ ./src/
+COPY --chown=jerry:jerry configs/ ./configs/
+
+# Security: Set restrictive permissions
+RUN chmod -R 550 /app/src \
+    && chmod -R 750 /app/configs \
+    && chmod -R 770 /app/data \
+    && chmod -R 770 /app/logs
+
+# Security: Switch to non-root user
+USER jerry
+
+# Security: Set environment variables for hardening
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PATH=/home/jerry/.local/bin:$PATH
+
+# Security: Set service-specific environment
+ENV AGENT_SERVER_HOST=0.0.0.0
+ENV AGENT_SERVER_PORT=8003
+
+# Security: Expose only necessary port
+EXPOSE 8003
+
+# Security: Add comprehensive health check
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8003/health || \
+    python -c "import requests; requests.get('http://localhost:8003/health', timeout=10)" || exit 1
+
+# Security: Use specific entrypoint and command
+ENTRYPOINT ["python", "-m"]
+CMD ["uvicorn", "src.services.agent_server:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "1"]

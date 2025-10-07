@@ -1,6 +1,6 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 {
-  "name": "nodejs-devcontainer",
+  "name": "jerry-python-devcontainer",
   "build": {
     "dockerfile": "../Dockerfile",
     "context": "../",
@@ -13,6 +13,13 @@
     "--userns=keep-id",
     "--pid=host"
   ],
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached",
+    "source=/run/user/1000/podman/podman.sock,target=/run/podman/podman.sock,type=bind,consistency=cached"
+  ],
+  "remoteEnv": {
+    "CONTAINER_HOST": "unix:///run/podman/podman.sock"
+  },
   "customizations": {
     // Configure properties specific to VS Code.
     "vscode": {
@@ -23,10 +30,7 @@
         "AquaSecurityOfficial.trivy-vulnerability-scanner",
         "firefox-devtools.vscode-firefox-debug",
         "Angular.ng-template",
-        "dbaeumer.vscode-eslint",
-        "ms-vscode.vscode-typescript-next",
         "ms-vscode.vscode-typescript",
-        "Angular.ng-template",
         "ms-azuretools.vscode-containers",
         "Semgrep.semgrep",
         "GitHub.vscode-github-actions",
@@ -37,15 +41,22 @@
         "mechatroner.rainbow-csv",
         "editorconfig.editorconfig",
         "streetsidesoftware.code-spell-checker",
-        "denoland.vscode-deno",
-        "google.geminicodeassist"
+        "charliermarsh.ruff"
       ],
       "settings": {
-        "[typescript]": {
-          "editor.defaultFormatter": "denoland.vscode-deno"
+        "python.linting.enabled": true,
+        "python.linting.ruffEnabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.flake8Enabled": false,
+        "python.linting.mypyEnabled": false,
+        "python.linting.ruffArgs": ["--config=pyproject.toml"],
+        "editor.codeActionsOnSave": {
+          "source.fixAll": "explicit",
+          "source.organizeImports": "explicit"
         },
         "editor.tabSize": 4
       }
     }
-  }
+  },
+  "postAttachCommand": "source $HOME/.local/bin/env && uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
 }

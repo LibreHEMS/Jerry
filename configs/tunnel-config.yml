@@ -1,0 +1,86 @@
+# Cloudflare Tunnel Configuration for Jerry AI Assistant
+# This configuration routes traffic from a Cloudflare domain to the internal web chat service
+
+# Tunnel credentials (set via environment variable TUNNEL_TOKEN)
+# tunnel: ${TUNNEL_ID}
+# credentials-file: /home/jerry/.cloudflared/credentials.json
+
+# Ingress rules - define how traffic is routed
+ingress:
+  # Main web chat application
+  - hostname: jerry-chat.your-domain.com
+    service: http://web-chat:8004
+    originRequest:
+      # Security headers
+      httpHostHeader: jerry-chat.your-domain.com
+      # Connection settings
+      connectTimeout: 30s
+      tlsTimeout: 10s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 10
+      keepAliveTimeout: 90s
+      # Authentication settings
+      access:
+        required: true
+        teamName: ${CLOUDFLARE_TEAM_NAME}
+        audTag: ${CLOUDFLARE_AUDIENCE_TAG}
+
+  # Health check endpoint (bypass auth for monitoring)
+  - hostname: jerry-chat.your-domain.com
+    path: /health
+    service: http://web-chat:8004
+    originRequest:
+      httpHostHeader: jerry-chat.your-domain.com
+
+  # API endpoints (authenticated)
+  - hostname: jerry-chat.your-domain.com
+    path: /api/*
+    service: http://web-chat:8004
+    originRequest:
+      httpHostHeader: jerry-chat.your-domain.com
+      access:
+        required: true
+        teamName: ${CLOUDFLARE_TEAM_NAME}
+        audTag: ${CLOUDFLARE_AUDIENCE_TAG}
+
+  # WebSocket endpoint (authenticated)
+  - hostname: jerry-chat.your-domain.com
+    path: /ws/*
+    service: http://web-chat:8004
+    originRequest:
+      httpHostHeader: jerry-chat.your-domain.com
+      access:
+        required: true
+        teamName: ${CLOUDFLARE_TEAM_NAME}
+        audTag: ${CLOUDFLARE_AUDIENCE_TAG}
+
+  # Catch-all rule (must be last)
+  - service: http_status:404
+
+# Security and performance settings
+warp-routing:
+  enabled: false
+
+# Logging configuration
+logLevel: info
+logDirectory: /home/jerry/.cloudflared
+logFile: tunnel.log
+
+# Metrics configuration
+metrics: 0.0.0.0:8080
+
+# No-TLS verify for internal services (since they're in secure network)
+no-tls-verify: true
+
+# Compression
+compression: gzip
+
+# Protocol settings
+protocol: quic
+
+# Retry settings
+retries: 3
+retry-interval: 5s
+
+# Grace period for shutdown
+grace-period: 30s

@@ -1,0 +1,68 @@
+[project]
+name = "jerry"
+version = "0.1.0"
+description = "Jerry - Self-hosted AI advisor for Australian renewable energy and smart home automation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=46.0.2",
+    "fastapi>=0.118.0",
+    "langchain>=0.3.27",
+    "langchain-community>=0.0.20",
+    "langchain-openai>=0.1.0",
+    "pyjwt>=2.10.1",
+    "python-dotenv>=1.1.1",
+    "uvicorn>=0.37.0",
+    "httpx>=0.28.0",
+    "requests>=2.31.0",
+    "chromadb>=0.5.0",
+    "llama-cpp-python>=0.2.11",
+    "sse-starlette>=1.6.5",
+    "sentence-transformers>=2.2.2",
+    "json-log-formatter>=0.5.2",
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+    "pypdf>=3.0.0",
+    "websockets>=11.0.0",
+    "python-multipart>=0.0.6",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.13.3",
+    "mypy>=1.18.2",
+    "black>=25.9.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = [
+    "build/",
+    "dist/",
+    "docs/",
+    "tests/",
+    ".venv/",
+]
+mypy_path = "src"
+

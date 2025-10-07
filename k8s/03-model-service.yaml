@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+  namespace: jerry
+  labels:
+    app: model-service
+    component: ai-model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-service
+  template:
+    metadata:
+      labels:
+        app: model-service
+        component: ai-model
+    spec:
+      # Node selector for GPU nodes (optional)
+      nodeSelector:
+        # jerry.ai/gpu-type: nvidia  # Uncomment for NVIDIA GPU nodes
+        # jerry.ai/gpu-type: intel   # Uncomment for Intel GPU nodes
+        jerry.ai/gpu-type: cpu      # Use for CPU-only nodes
+      containers:
+      - name: model-service
+        # Use multi-GPU dockerfile for production
+        image: jerry/model-service:latest
+        ports:
+        - containerPort: 8001
+          name: http
+        env:
+        - name: MODEL_PATH
+          value: "/app/models"
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: MODEL_NAME
+        - name: MODEL_SERVER_HOST
+          value: "0.0.0.0"
+        - name: MODEL_SERVER_PORT
+          value: "8001"
+        - name: MODEL_CONTEXT_LENGTH
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: MODEL_CONTEXT_LENGTH
+        - name: MODEL_TEMPERATURE
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: MODEL_TEMPERATURE
+        - name: MODEL_MAX_TOKENS
+          valueFrom:
+            configMapKeyRef:
+              name: jerry-config
+              key: MODEL_MAX_TOKENS
+        # GPU acceleration environment variables
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"  # Set to "" for CPU-only
+        volumeMounts:
+        - name: model-data
+          mountPath: /app/models
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+            # nvidia.com/gpu: 1  # Uncomment for NVIDIA GPU
+            # intel.com/gpu: 1   # Uncomment for Intel GPU
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            # nvidia.com/gpu: 1  # Uncomment for NVIDIA GPU
+            # intel.com/gpu: 1   # Uncomment for Intel GPU
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: model-data
+        persistentVolumeClaim:
+          claimName: jerry-model-data-pvc
+      securityContext:
+        fsGroup: 1000
+      # Tolerations for GPU nodes (optional)
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: intel.com/gpu
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: jerry
+  labels:
+    app: model-service
+spec:
+  selector:
+    app: model-service
+  ports:
+  - port: 8001
+    targetPort: 8001
+    name: http
+  type: ClusterIP

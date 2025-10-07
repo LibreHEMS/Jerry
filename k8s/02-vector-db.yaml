@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-db
+  namespace: jerry
+  labels:
+    app: vector-db
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vector-db
+  template:
+    metadata:
+      labels:
+        app: vector-db
+        component: database
+    spec:
+      containers:
+      - name: chroma
+        image: chromadb/chroma:latest
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: CHROMA_HOST_ADDR
+          value: "0.0.0.0"
+        - name: CHROMA_HOST_PORT
+          value: "8000"
+        - name: CHROMA_AUTH_ENABLED
+          value: "false"
+        volumeMounts:
+        - name: vector-data
+          mountPath: /chroma/chroma
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/v1/heartbeat
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/heartbeat
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: vector-data
+        persistentVolumeClaim:
+          claimName: jerry-vector-data-pvc
+      securityContext:
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-db
+  namespace: jerry
+  labels:
+    app: vector-db
+spec:
+  selector:
+    app: vector-db
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  type: ClusterIP

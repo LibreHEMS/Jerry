@@ -1,0 +1,129 @@
+# Jerry Model Service - Multi-GPU Support (NVIDIA, Intel, CPU)
+FROM python:3.11-slim AS base
+
+# Security: Set metadata labels
+LABEL maintainer="jerry@librehems.org"
+LABEL description="Jerry AI Model Service with llama.cpp and multi-GPU support"
+LABEL version="1.0.0"
+LABEL security.scan.enabled="true"
+
+# Build arguments for hardware acceleration
+ARG ACCELERATION=cpu
+ARG CMAKE_ARGS=""
+
+# Security: Update base image and install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    cmake \
+    build-essential \
+    git \
+    wget \
+    curl \
+    ca-certificates \
+    pkg-config \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Install NVIDIA CUDA support (if NVIDIA acceleration)
+RUN if [ "$ACCELERATION" = "nvidia" ] || [ "$ACCELERATION" = "cuda" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    nvidia-cuda-dev \
+    nvidia-cuda-toolkit \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Install Intel GPU support (if Intel acceleration)
+RUN if [ "$ACCELERATION" = "intel" ] || [ "$ACCELERATION" = "opencl" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    intel-opencl-icd \
+    opencl-headers \
+    clinfo \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Security: Create application directory with restricted permissions
+WORKDIR /app
+RUN chmod 755 /app
+
+# Security: Create non-root user early
+RUN groupadd -r jerry && useradd -r -g jerry -u 1000 jerry \
+    && mkdir -p /app/data /app/logs /app/models \
+    && chown -R jerry:jerry /app
+
+# Security: Install base dependencies as root
+COPY --chown=jerry:jerry pyproject.toml ./
+COPY --chown=jerry:jerry README.md ./
+RUN pip install --no-cache-dir -U pip uv
+RUN uv pip install --system --no-cache-dir \
+    "fastapi>=0.100.0" \
+    "uvicorn>=0.23.0" \
+    "pydantic>=2.0.0" \
+    "python-dotenv>=1.0.0" \
+    "httpx>=0.24.0" \
+    "numpy>=1.24.0" \
+    "pyjwt>=2.8.0" \
+    "cryptography>=41.0.0"
+
+# Install llama-cpp-python with appropriate acceleration
+RUN case "$ACCELERATION" in \
+    "nvidia"|"cuda") \
+        export CMAKE_ARGS="-DLLAMA_CUDA=ON -DLLAMA_CUDA_F16=1" && \
+        uv pip install --system --no-cache-dir llama-cpp-python --force-reinstall --no-cache-dir \
+        ;; \
+    "intel"|"opencl") \
+        export CMAKE_ARGS="-DLLAMA_CLBLAST=ON" && \
+        uv pip install --system --no-cache-dir llama-cpp-python --force-reinstall --no-cache-dir \
+        ;; \
+    "cpu"|*) \
+        export CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" && \
+        apt-get update && apt-get install -y --no-install-recommends libopenblas-dev && \
+        uv pip install --system --no-cache-dir llama-cpp-python --force-reinstall --no-cache-dir && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* \
+        ;; \
+    esac
+
+# Security: Copy application source with proper ownership
+COPY --chown=jerry:jerry src/ ./src/
+COPY --chown=jerry:jerry configs/ ./configs/
+
+# Security: Set restrictive permissions
+RUN chmod -R 550 /app/src \
+    && chmod -R 750 /app/configs \
+    && chmod -R 770 /app/data \
+    && chmod -R 770 /app/logs \
+    && chmod -R 770 /app/models
+
+# Security: Switch to non-root user
+USER jerry
+
+# Security: Set environment variables for hardening
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PATH=/home/jerry/.local/bin:$PATH
+
+# Model server configuration
+ENV MODEL_SERVER_HOST=0.0.0.0
+ENV MODEL_SERVER_PORT=8001
+ENV MODEL_PATH=/app/models
+
+# Hardware acceleration environment variables
+ENV CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-""}
+ENV OPENCL_VENDOR_PATH=/etc/OpenCL/vendors
+
+# Security: Expose only necessary port
+EXPOSE 8001
+
+# Security: Add comprehensive health check
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8001/health || \
+    python -c "import requests; requests.get('http://localhost:8001/health', timeout=10)" || exit 1
+
+# Security: Use specific entrypoint and command
+ENTRYPOINT ["python", "-m"]
+CMD ["uvicorn", "src.services.model_server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]

@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jerry
+  labels:
+    app: jerry-ai
+    environment: staging
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jerry-config
+  namespace: jerry
+data:
+  ENVIRONMENT: "staging"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  
+  # Web Chat Configuration
+  WEB_CHAT_HOST: "0.0.0.0"
+  WEB_CHAT_PORT: "8004"
+  WEB_CHAT_ALLOWED_HOSTS: "localhost,127.0.0.1,jerry-chat.your-domain.com"
+  WEB_CHAT_CORS_ORIGINS: "https://jerry-chat.your-domain.com,http://localhost:8004"
+  WEB_CHAT_TUNNEL_ENABLED: "true"
+  WEB_CHAT_SESSION_TIMEOUT: "60"
+  
+  # Authentication Configuration
+  AUTH_ALGORITHM: "HS256"
+  AUTH_TOKEN_EXPIRY_HOURS: "24"
+  AUTH_MAX_SESSIONS_PER_USER: "5"
+  
+  # Service URLs (Internal Kubernetes network)
+  MODEL_SERVICE_URL: "http://model-service:8001"
+  RAG_SERVICE_URL: "http://rag-service:8002"
+  AGENT_SERVICE_URL: "http://agent-service:8003"
+  
+  # Model Configuration
+  MODEL_NAME: "mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+  MODEL_CONTEXT_LENGTH: "4096"
+  MODEL_TEMPERATURE: "0.7"
+  MODEL_MAX_TOKENS: "512"
+  
+  # RAG Configuration
+  CHROMA_HOST: "vector-db"
+  CHROMA_PORT: "8000"
+  EMBEDDINGS_MODEL: "all-MiniLM-L6-v2"
+  RAG_CHUNK_SIZE: "512"
+  RAG_CHUNK_OVERLAP: "50"
+  RAG_MAX_RESULTS: "5"
+  
+  # Agent Configuration
+  AGENT_MAX_ITERATIONS: "10"
+  CONVERSATION_MEMORY_SIZE: "20"
+  AGENT_MAX_CONVERSATION_LENGTH: "20"
+  
+  # Security Settings
+  RATE_LIMIT_PER_MINUTE: "60"
+  SECURE_COOKIES: "true"
+  SESSION_TIMEOUT_MINUTES: "30"
+  MAX_LOGIN_ATTEMPTS: "5"
+  LOCKOUT_DURATION_MINUTES: "15"
+  
+  # Database Configuration
+  DATABASE_URL: "sqlite:///./data/jerry.db"
+  DATABASE_ECHO: "false"
+  
+  # Logging Configuration
+  LOG_FORMAT: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  LOG_FILE_PATH: "/app/logs/jerry.log"
+  LOG_MAX_FILE_SIZE_MB: "10"
+  LOG_BACKUP_COUNT: "5"
+  
+  # Vector Database Configuration
+  VECTOR_DB_PATH: "/app/data/chroma"
+  
+  # Health Check Configuration
+  HEALTH_CHECK_TIMEOUT: "30"
+  HEALTH_CHECK_RETRIES: "3"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jerry-secrets
+  namespace: jerry
+type: Opaque
+stringData:
+  AUTH_SECRET_KEY: "staging-secret-key-change-in-production-2024"
+  JWT_SECRET: "staging-jwt-secret-change-in-production-2024"
+  ENCRYPTION_KEY: "staging-encryption-key-change-in-production-2024"
+  # Cloudflare Configuration (if using tunnel)
+  CLOUDFLARE_TEAM_DOMAIN: "your-team.cloudflareaccess.com"
+  CLOUDFLARE_AUDIENCE_TAG: "your-audience-tag"
+  CLOUDFLARE_TUNNEL_TOKEN: "your-tunnel-token-here"
+  CLOUDFLARE_TUNNEL_ID: "your-tunnel-id-here"
+  CLOUDFLARE_TEAM_NAME: "your-team-name"

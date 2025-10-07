@@ -1,0 +1,77 @@
+# Jerry Discord Bot Service - Security Hardened
+FROM python:3.11-slim
+
+# Security: Set metadata labels
+LABEL maintainer="jerry@librehems.org"
+LABEL description="Jerry AI Discord Bot Service"
+LABEL version="1.0.0"
+LABEL security.scan.enabled="true"
+
+# Security: Update base image and install only required packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    cmake \
+    build-essential \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Security: Create application directory with restricted permissions
+WORKDIR /app
+RUN chmod 755 /app
+
+# Security: Create non-root user early
+RUN groupadd -r jerry && useradd -r -g jerry -u 1000 jerry \
+    && mkdir -p /app/data /app/logs \
+    && chown -R jerry:jerry /app
+
+# Security: Copy and install dependencies as root, then switch user
+COPY --chown=jerry:jerry pyproject.toml ./
+COPY --chown=jerry:jerry README.md ./
+RUN pip install --no-cache-dir -U pip uv
+RUN uv pip install --system --no-cache-dir \
+    "discord.py>=2.3.0" \
+    "fastapi>=0.100.0" \
+    "uvicorn>=0.23.0" \
+    "pydantic>=2.0.0" \
+    "python-dotenv>=1.0.0" \
+    "httpx>=0.24.0" \
+    "pyjwt>=2.8.0" \
+    "cryptography>=41.0.0" \
+    "sqlalchemy>=2.0.0"
+
+# Security: Copy application source with proper ownership
+COPY --chown=jerry:jerry src/ ./src/
+COPY --chown=jerry:jerry configs/ ./configs/
+
+# Security: Set final permissions
+RUN chmod -R 550 /app/src \
+    && chmod -R 750 /app/configs \
+    && chmod -R 770 /app/data \
+    && chmod -R 770 /app/logs
+
+# Security: Switch to non-root user
+USER jerry
+
+# Security: Set environment variables for hardening
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PATH=/home/jerry/.local/bin:$PATH
+
+# Security: Expose only necessary port (none for Discord bot)
+# Discord bots connect outbound only
+
+# Security: Add health check with timeout
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys, os; sys.path.insert(0, '/app'); \
+    from src.utils.config import get_config; \
+    config = get_config(); \
+    print('Bot service healthy') if config.discord.bot_token else exit(1)"
+
+# Security: Use specific entrypoint and command
+ENTRYPOINT ["python", "-m"]
+CMD ["src.bot.bot"]

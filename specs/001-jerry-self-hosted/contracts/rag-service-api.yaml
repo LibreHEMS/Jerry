@@ -1,0 +1,208 @@
+openapi: 3.0.3
+info:
+  title: Jerry RAG Service API
+  description: Internal API for Jerry's knowledge base and retrieval
+  version: 1.0.0
+servers:
+  - url: http://localhost:8002
+    description: Local RAG service
+
+paths:
+  /v1/search:
+    post:
+      summary: Search knowledge base
+      operationId: searchKnowledge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/documents:
+    post:
+      summary: Add document to knowledge base
+      operationId: addDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentRequest'
+      responses:
+        '201':
+          description: Document added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResponse'
+
+  /v1/health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+        min_score:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.1
+        filters:
+          type: object
+          additionalProperties: true
+
+    SearchResponse:
+      type: object
+      required:
+        - results
+        - query_time_ms
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        query_time_ms:
+          type: number
+        total_results:
+          type: integer
+
+    SearchResult:
+      type: object
+      required:
+        - id
+        - content
+        - score
+        - metadata
+      properties:
+        id:
+          type: string
+        content:
+          type: string
+        score:
+          type: number
+        metadata:
+          type: object
+          properties:
+            title:
+              type: string
+            source:
+              type: string
+            page:
+              type: integer
+            section:
+              type: string
+            document_type:
+              type: string
+
+    DocumentRequest:
+      type: object
+      required:
+        - title
+        - content
+        - metadata
+      properties:
+        title:
+          type: string
+          minLength: 1
+        content:
+          type: string
+          minLength: 1
+        metadata:
+          type: object
+          required:
+            - source
+          properties:
+            source:
+              type: string
+            document_type:
+              type: string
+            author:
+              type: string
+            created_date:
+              type: string
+              format: date
+
+    DocumentResponse:
+      type: object
+      required:
+        - id
+        - chunks_created
+      properties:
+        id:
+          type: string
+        chunks_created:
+          type: integer
+        processing_time_ms:
+          type: number
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        vector_db_status:
+          type: string
+        total_documents:
+          type: integer
+        total_chunks:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+            - type
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            code:
+              type: string

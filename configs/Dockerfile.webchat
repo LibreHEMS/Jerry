@@ -1,0 +1,87 @@
+# Jerry Web Chat Service with Tunnel - Security Hardened
+FROM python:3.11-slim
+
+# Security: Set metadata labels
+LABEL maintainer="jerry@librehems.org"
+LABEL description="Jerry AI Web Chat Service with Tunnel Support"
+LABEL version="1.0.0"
+LABEL security.scan.enabled="true"
+
+# Security: Update base image and install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    build-essential \
+    curl \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Security: Create application directory with restricted permissions
+WORKDIR /app
+RUN chmod 755 /app
+
+# Security: Create non-root user early
+RUN groupadd -r jerry && useradd -r -g jerry -u 1000 jerry \
+    && mkdir -p /app/data /app/logs /app/static \
+    && chown -R jerry:jerry /app
+
+# Security: Copy and install dependencies as root, then switch user
+COPY --chown=jerry:jerry pyproject.toml ./
+COPY --chown=jerry:jerry README.md ./
+RUN pip install --no-cache-dir -U pip uv
+RUN uv pip install --system --no-cache-dir \
+    "fastapi>=0.100.0" \
+    "uvicorn>=0.23.0" \
+    "pydantic>=2.0.0" \
+    "python-dotenv>=1.0.0" \
+    "httpx>=0.24.0" \
+    "pyjwt>=2.8.0" \
+    "cryptography>=41.0.0" \
+    "websockets>=11.0.0" \
+    "jinja2>=3.1.0" \
+    "python-multipart>=0.0.6"
+
+# Install additional dependencies for web chat
+RUN uv pip install --system --no-cache-dir \
+    websockets \
+    python-multipart \
+    jinja2
+
+# Security: Copy application source with proper ownership
+COPY --chown=jerry:jerry src/ ./src/
+COPY --chown=jerry:jerry configs/ ./configs/
+
+# Security: Set restrictive permissions
+RUN chmod -R 550 /app/src \
+    && chmod -R 750 /app/configs \
+    && chmod -R 770 /app/data \
+    && chmod -R 770 /app/logs \
+    && chmod -R 755 /app/static
+
+# Security: Switch to non-root user
+USER jerry
+
+# Security: Set environment variables for hardening
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PATH=/home/jerry/.local/bin:$PATH
+
+# Web chat server configuration
+ENV WEB_CHAT_HOST=0.0.0.0
+ENV WEB_CHAT_PORT=8004
+
+# Security: Expose only necessary port
+EXPOSE 8004
+
+# Security: Add comprehensive health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8004/health || \
+    python -c "import requests; requests.get('http://localhost:8004/health', timeout=10)" || exit 1
+
+# Security: Use specific entrypoint and command
+ENTRYPOINT ["python", "-m"]
+CMD ["uvicorn", "src.services.web_chat_server:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "1"]

@@ -1,0 +1,36 @@
+# Cloudflare Tunnel Service for Jerry AI Assistant
+FROM cloudflare/cloudflared:latest
+
+# Security: Set metadata labels
+LABEL maintainer="jerry@librehems.org"
+LABEL description="Cloudflare Tunnel for Jerry AI Web Chat"
+LABEL version="1.0.0"
+LABEL security.scan.enabled="true"
+
+# Security: Create non-root user
+RUN addgroup -g 1000 jerry && \
+    adduser -u 1000 -G jerry -s /bin/sh -D jerry
+
+# Create necessary directories
+RUN mkdir -p /home/jerry/.cloudflared \
+    && chown -R jerry:jerry /home/jerry/.cloudflared
+
+# Copy tunnel configuration
+COPY --chown=jerry:jerry configs/tunnel-config.yml /home/jerry/.cloudflared/config.yml
+
+# Security: Switch to non-root user
+USER jerry
+
+# Set working directory
+WORKDIR /home/jerry
+
+# Security: Set environment variables
+ENV TUNNEL_ORIGIN_CERT_PATH=/home/jerry/.cloudflared/cert.pem
+ENV TUNNEL_CONFIG_PATH=/home/jerry/.cloudflared/config.yml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD cloudflared tunnel --config $TUNNEL_CONFIG_PATH info || exit 1
+
+# Default command - will be overridden in compose
+CMD ["cloudflared", "tunnel", "--config", "/home/jerry/.cloudflared/config.yml", "run"]
