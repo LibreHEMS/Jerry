@@ -197,7 +197,7 @@ export JWT_SECRET=your-jwt-secret
 
 ### Custom Models
 
-Jerry supports any GGUF format model:
+Jerry supports GGUF format model:
 
 1. Download model files to `data/models/`
 2. Update `DEFAULT_MODEL` environment variable
