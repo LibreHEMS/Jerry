@@ -60,13 +60,8 @@ Jerry uses a microservices architecture with the following components:
 # Install Podman
 sudo apt update && sudo apt install -y podman
 
-# Install uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
-
 # Verify installations
 podman --version
-uv --version
 ```
 
 ### 1. Clone and Setup
