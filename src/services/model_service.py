@@ -81,6 +81,10 @@ class ChatResponse:
             self.metadata = {}
 
 
+# Alias for compatibility
+ModelResponse = ChatResponse
+
+
 @dataclass
 class StreamChunk:
     """A chunk of streaming response."""

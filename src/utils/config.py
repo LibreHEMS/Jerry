@@ -141,13 +141,31 @@ class DiscordConfig:
 class ModelConfig:
     """AI model configuration."""
 
+    # Service configuration
     service_url: str = "http://localhost:8001"
+    model_type: str = "noop"  # noop, openai, llama_cpp
+    timeout_seconds: int = 30
+
+    # Local model settings (llama_cpp)
     model_name: str = "llama-3.1-8b-instruct"
+    model_path: str = "./data/models"
     quantization: str = "Q4_K_M"
     context_length: int = 4096
+    gpu_layers: int = 0  # 0 for CPU-only
+    threads: int = 4
+
+    # Generation parameters
     temperature: float = 0.7
     max_tokens: int = 512
-    timeout_seconds: int = 30
+    top_p: float = 0.9
+    top_k: int = 40
+    repeat_penalty: float = 1.1
+
+    # OpenAI-compatible API settings
+    openai_api_key: str | None = None
+    openai_base_url: str | None = None  # e.g., https://api.openai.com/v1
+    openai_model: str = "gpt-4"
+    openai_organization: str | None = None
 
 
 @dataclass

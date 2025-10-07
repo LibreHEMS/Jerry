@@ -16,7 +16,6 @@ dependencies = [
     "httpx>=0.28.0",
     "requests>=2.31.0",
     "chromadb>=0.5.0",
-    "llama-cpp-python>=0.2.11",
     "sse-starlette>=1.6.5",
     "sentence-transformers>=2.2.2",
     "json-log-formatter>=0.5.2",
@@ -36,6 +35,16 @@ dev = [
     "ruff>=0.13.3",
     "mypy>=1.18.2",
     "black>=25.9.0",
+]
+
+# Optional model backends (install as needed)
+llama-cpp = [
+    "llama-cpp-python>=0.2.11",
+]
+
+gpu = [
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
 ]
 
 [build-system]
@@ -65,4 +74,12 @@ exclude = [
     ".venv/",
 ]
 mypy_path = "src"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.13.3",
+]
 

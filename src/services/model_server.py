@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import Field
 
-from ..services.local_model_service import LocalModelService
+from ..services.adaptive_model_service import create_model_service
 from ..services.model_service import ChatRequest
 from ..services.model_service import InferenceError
 from ..services.model_service import ModelNotLoadedError
@@ -47,17 +47,20 @@ async def lifespan(app: FastAPI):
         config = load_config()
         setup_logging(config.logging)
 
-        # Initialize local model service
-        local_service = LocalModelService(config.model)
-        model_registry.register("local", local_service, default=True)
+        # Initialize adaptive model service based on configuration
+        model_service = create_model_service(config)
+        model_registry.register("adaptive", model_service, default=True)
 
-        # Load the default model
-        await local_service.load_model()
-        logger.info("Model service startup complete")
+        # Check if the service is healthy
+        if await model_service.is_healthy():
+            logger.info("Model service startup complete and healthy")
+        else:
+            logger.warning("Model service started but health check failed")
 
     except Exception as e:
         logger.error(f"Failed to start model service: {e}", exc_info=True)
-        raise
+        # Don't raise - allow service to start with reduced functionality
+        logger.info("Starting with reduced functionality - some features may not work")
 
     yield
 

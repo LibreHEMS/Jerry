@@ -5,7 +5,27 @@ Simple Jerry Status Server using only built-in Python modules
 
 import http.server
 import socketserver
-import json
+import urllib.request
+import urllib.error
+from datetime import datetime
+
+
+class JerryStatusServer:
+    def check_chromadb(self):
+        """Check if ChromaDB is responding"""
+        try:
+            # Try v2 API first (current), fallback to v1 if needed
+            endpoints = [
+                'http://localhost:8000/api/v1/heartbeat',  # Keep for compatibility
+                'http://localhost:8000/',  # Basic health check
+            ]
+            
+            for endpoint in endpoints:
+                try:
+                    req = urllib.request.Request(endpoint)
+                    with urllib.request.urlopen(req, timeout=2) as response:
+                        if response.getcode() == 200:
+                            return {'status': 'running', 'details': f'ChromaDB responding at {endpoint}'}on
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -142,8 +162,12 @@ class SimpleStatusHandler(http.server.SimpleHTTPRequestHandler):
                     return {'status': 'running', 'details': 'ChromaDB responding normally'}
                 else:
                     return {'status': 'failed', 'details': f'HTTP {response.status}'}
-        except urllib.error.URLError as e:
-            return {'status': 'failed', 'details': f'Connection error: {e}'}
+        except urllib.error.URLError:
+                    continue  # Try next endpoint
+            
+            return {'status': 'failed', 'details': 'ChromaDB not responding to any endpoints'}
+        except Exception as e:
+            return {'status': 'failed', 'details': f'ChromaDB check failed: {str(e)}'}
         except Exception as e:
             return {'status': 'failed', 'details': f'Error: {e}'}
 

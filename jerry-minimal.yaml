@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jerry-infrastructure
+  labels:
+    app: jerry-ai
+    environment: production
+    tier: infrastructure
+spec:
+  containers:
+  # ChromaDB Vector Database
+  - name: vector-db
+    image: docker.io/chromadb/chroma:latest
+    ports:
+    - containerPort: 8000
+      hostPort: 8000
+    env:
+    - name: ALLOW_RESET
+      value: "true"
+    - name: ANONYMIZED_TELEMETRY
+      value: "false"
+    volumeMounts:
+    - name: chroma-data
+      mountPath: /chroma/chroma
+  
+  # Organizational Dashboard
+  - name: dashboard
+    image: localhost/jerry-dashboard:latest
+    ports:
+    - containerPort: 8080
+      hostPort: 8080
+    
+  volumes:
+  - name: chroma-data
+    hostPath:
+      path: ./data/chroma
+      type: DirectoryOrCreate
