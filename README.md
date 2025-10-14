@@ -203,11 +203,6 @@ Jerry supports GGUF format model:
 2. Update `DEFAULT_MODEL` environment variable
 3. Restart the model service
 
-Popular models:
-- **Llama 2 7B**: Good balance of speed and quality
-- **Mistral 7B**: Excellent instruction following
-- **Code Llama**: For technical coding questions
-
 ## 🚢 Deployment Options
 
 ### Local Development (Podman)
@@ -343,8 +338,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Built with ❤️ for the Australian renewable energy community**
-   - Local: http://localhost:30004
-   - Tunnel: Configure Cloudflare Tunnel for external access
 
 ## Services
 
